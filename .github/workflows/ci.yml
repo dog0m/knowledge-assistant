@@ -97,13 +97,13 @@ jobs:
 
       - name: Install Playwright
         run: |
-          npm install --prefix app -D @playwright/test
-          npx --prefix app playwright install --with-deps chromium
+          npm install
+          npx playwright install --with-deps chromium
 
       - name: Run Playwright smoke tests
         env:
           BASE_URL: http://localhost:8080
-        run: npx --prefix app playwright test -c tests/e2e/playwright.config.js
+        run: npx playwright test -c tests/e2e/playwright.config.js
 
       - name: Stop stack
         if: always()

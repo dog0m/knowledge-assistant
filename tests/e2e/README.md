@@ -2,8 +2,10 @@
 
 ## 安装
 
+在仓库根目录执行：
+
 ```powershell
-npm install -D @playwright/test
+npm install
 npx playwright install chromium
 ```
 
@@ -15,7 +17,7 @@ npx playwright install chromium
 $env:BASE_URL = "http://localhost:8080"
 $env:E2E_USERNAME = "admin"
 $env:E2E_PASSWORD = "你的管理员密码"
-npx playwright test -c tests/e2e/playwright.config.js
+npm run test:e2e
 ```
 
 ## 覆盖范围
