@@ -1,5 +1,3 @@
-import pytest
-
 # 兼容两种布局：本地为 rag 包，容器内模块位于 /service 根目录。
 try:
     from rag.security import format_untrusted_context, mark_untrusted_sources, scan_prompt_injection

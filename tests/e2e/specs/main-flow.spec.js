@@ -29,6 +29,10 @@ test.describe('main flow', () => {
     });
     expect(upload.ok()).toBeTruthy();
 
+    // 新建一个空会话再提问：否则会命中历史会话里已有的回答，导致断言数量不确定。
+    await page.click('#newSession');
+    await expect(page.locator('#chatMessages .assistant')).toHaveCount(0);
+
     // 提问并等待回答与引用。
     await page.fill('#chatInput', 'What is the calibration token?');
     await page.click('#sendMessage');

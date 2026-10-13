@@ -28,6 +28,7 @@ artifacts/
 .impacket-runtime*/
 .venv/
 venv/
+.venv-*/
 .package-runner.txt
 
 # 编辑器与系统文件

@@ -59,12 +59,41 @@
       } catch (error) { answerElement.textContent = error.message; $('chatStatus').textContent = error.message; }
     }    async function loadDocuments() { try { const data=await api('/api/documents'); $('documentRows').innerHTML=data.items.map(d=>`<tr><td>${esc(d.filename)}</td><td>${esc(d.status)}</td><td>${esc(d.version)}</td><td>${esc(d.chunk_count)}</td><td>${esc(d.error_message||'')}</td><td>${d.status==='failed'?`<button data-retry="${esc(d.id)}">重试</button>`:''} ${state.user.role==='admin'||state.user.role==='maintainer'?`<button class="secondary" data-access="${esc(d.id)}">权限</button><button class="secondary" data-delete="${esc(d.id)}">删除</button>`:''}</td></tr>`).join(''); } catch(error) { $('uploadStatus').textContent=error.message; } }
     async function uploadDocuments(event) { event.preventDefault(); const form=new FormData(); [...$('files').files].forEach(file=>form.append('files',file)); form.append('department',$('department').value); form.append('sensitivity',$('sensitivity').value); if($('uploadKb').value) form.append('knowledge_base_id',$('uploadKb').value); $('uploadStatus').textContent='导入中...'; try { const data=await api('/api/documents/batch',{method:'POST',body:form}); $('uploadStatus').textContent=`完成：成功 ${data.succeeded}，失败 ${data.failed}`; await loadDocuments(); } catch(error) { $('uploadStatus').textContent=error.message; } }
-    async function manageDocumentAccess(id) {
-      const value=prompt("输入允许访问的用户 UUID，多个用逗号分隔；留空表示清空手工 ACL");
-      if(value===null)return;
-      const allowed_users=value.split(",").map(v=>v.trim()).filter(Boolean);
-      await api(`/api/documents/${id}/access`,{method:"PUT",body:JSON.stringify({allowed_users})});
-      await loadDocuments();
+    // 文档 ACL 可视化编辑器：用勾选列表替代手抄 UUID，并区分手工授权与知识库自动授权。
+    let aclState = null;
+    async function openAclEditor(id) {
+      try {
+        aclState = await api(`/api/documents/${id}/access`);
+        $('aclFilename').textContent = aclState.filename || '';
+        $('aclSearch').value = '';
+        $('aclStatus').textContent = '';
+        renderAclList();
+        $('aclEditor').classList.remove('hidden');
+      } catch (error) { $('uploadStatus').textContent = error.message; }
+    }
+    function renderAclList() {
+      const manual = new Set(aclState.manual_allowed_users || []);
+      const kb = new Set(aclState.kb_allowed_users || []);
+      const term = $('aclSearch').value.trim().toLowerCase();
+      const rows = (aclState.candidates || []).filter(u => !term || [u.username, u.display_name, u.department].some(v => String(v || '').toLowerCase().includes(term)));
+      $('aclList').innerHTML = rows.length ? rows.map(u => {
+        // 知识库成员是自动授权，勾选框置灰，避免误以为取消勾选就能移除该成员。
+        const kbDerived = kb.has(u.id);
+        const checked = manual.has(u.id) || kbDerived ? 'checked' : '';
+        const disabled = kbDerived ? 'disabled' : '';
+        const tag = kbDerived ? ' <span class="muted">（知识库成员，自动授权）</span>' : '';
+        return `<label class="row" style="gap:8px;padding:4px 0"><input type="checkbox" data-user="${esc(u.id)}" ${checked} ${disabled}> ${esc(u.username)}（${esc(u.display_name)}） · ${esc(u.department)}${tag}</label>`;
+      }).join('') : '<p class="muted">没有匹配的成员</p>';
+    }
+    async function saveAclEditor() {
+      if (!aclState) return;
+      // 只提交手工勾选、且非知识库派生的成员，服务端会与 KB ACL 合并成最终 allowed_users。
+      const ids = [...$('aclList').querySelectorAll('input[data-user]')].filter(box => box.checked && !box.disabled).map(box => box.dataset.user);
+      try {
+        await api(`/api/documents/${aclState.document_id}/access`, { method: 'PUT', body: JSON.stringify({ allowed_users: ids }) });
+        $('aclStatus').textContent = `已保存，共授权 ${ids.length} 人`;
+        await loadDocuments();
+      } catch (error) { $('aclStatus').textContent = error.message; }
     }
     async function retryDocument(id) { await api(`/api/documents/${id}/retry`,{method:'POST'}); await loadDocuments(); }
     async function deleteDocument(id) { if(confirm('确认删除这份文档及其索引？')) { await api(`/api/documents/${id}`,{method:'DELETE'}); await loadDocuments(); } }
@@ -77,7 +106,7 @@
     async function loadUsers() { const data=await api('/api/admin/users'); $('userRows').innerHTML=data.items.map(u=>`<tr><td>${esc(u.username)}</td><td>${esc(u.display_name)}</td><td>${esc(u.role)}</td><td>${esc(u.department)}</td><td>${u.active?'启用':'停用'}</td></tr>`).join(''); }
     async function createUser(event) { event.preventDefault(); try { await api('/api/admin/users',{method:'POST',body:JSON.stringify({username:$('newUsername').value,password:$('newPassword').value,display_name:$('newDisplayName').value,department:$('newDepartment').value,role:$('newRole').value})}); $('userStatus').textContent='用户已创建'; $('userForm').reset(); await loadUsers(); } catch(error) { $('userStatus').textContent=error.message; } }
     async function createDepartment(event) { event.preventDefault(); try { await api('/api/admin/departments',{method:'POST',body:JSON.stringify({name:$('newDepartmentName').value})}); $('departmentStatus').textContent='部门已添加'; $('departmentForm').reset(); await loadDepartments(); } catch(error) { $('departmentStatus').textContent=error.message; } }
-    $('loginForm').addEventListener('submit',login); $('renameSession').addEventListener('click',()=>renameSession().catch(e=>$('chatStatus').textContent=e.message)); $('deleteSession').addEventListener('click',()=>deleteSession().catch(e=>$('chatStatus').textContent=e.message)); $('changePassword').addEventListener('click',()=>changePassword().catch(e=>$('chatStatus').textContent=e.message)); $('newSession').addEventListener('click',newSession); $('sessionSelect').addEventListener('change',loadMessages); $('sendMessage').addEventListener('click',sendMessage); $('uploadForm').addEventListener('submit',uploadDocuments); $('kbForm').addEventListener('submit',createKnowledgeBase); $('departmentForm').addEventListener('submit',createDepartment); $('userForm').addEventListener('submit',createUser); $('exportFeedback').addEventListener('click',()=>downloadCsv('/api/admin/feedback/export','feedback.csv').catch(e=>$('chatStatus').textContent=e.message)); $('exportDocuments').addEventListener('click',()=>downloadCsv('/api/documents/export','documents.csv').catch(e=>$('uploadStatus').textContent=e.message)); $('logout').addEventListener('click',()=>{localStorage.removeItem('kb_token');location.reload();}); $('documentRows').addEventListener('click',event=>{const retry=event.target.closest('[data-retry]');const access=event.target.closest('[data-access]');const remove=event.target.closest('[data-delete]');if(retry)retryDocument(retry.dataset.retry);if(access)manageDocumentAccess(access.dataset.access);if(remove)deleteDocument(remove.dataset.delete);}); $('chatMessages').addEventListener('click',event=>{const button=event.target.closest('[data-feedback]');if(button)submitFeedback(button);}); $('kbRows').addEventListener('click',event=>{const button=event.target.closest('[data-members]');if(button)manageMembers(button.dataset.members);}); document.querySelectorAll('[data-tab]').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('[data-tab]').forEach(b=>b.classList.remove('active'));button.classList.add('active');document.querySelectorAll('[id^="tab-"]').forEach(panel=>panel.classList.add('hidden')); $(`tab-${button.dataset.tab}`).classList.remove('hidden'); if(button.dataset.tab==='stats')loadStats(); if(button.dataset.tab==='users')loadUsers();}));
+    $('loginForm').addEventListener('submit',login); $('renameSession').addEventListener('click',()=>renameSession().catch(e=>$('chatStatus').textContent=e.message)); $('deleteSession').addEventListener('click',()=>deleteSession().catch(e=>$('chatStatus').textContent=e.message)); $('changePassword').addEventListener('click',()=>changePassword().catch(e=>$('chatStatus').textContent=e.message)); $('newSession').addEventListener('click',newSession); $('sessionSelect').addEventListener('change',loadMessages); $('sendMessage').addEventListener('click',sendMessage); $('uploadForm').addEventListener('submit',uploadDocuments); $('kbForm').addEventListener('submit',createKnowledgeBase); $('departmentForm').addEventListener('submit',createDepartment); $('userForm').addEventListener('submit',createUser); $('aclSave').addEventListener('click',()=>saveAclEditor()); $('aclCancel').addEventListener('click',()=>$('aclEditor').classList.add('hidden')); $('aclSearch').addEventListener('input',renderAclList); $('exportFeedback').addEventListener('click',()=>downloadCsv('/api/admin/feedback/export','feedback.csv').catch(e=>$('chatStatus').textContent=e.message)); $('exportDocuments').addEventListener('click',()=>downloadCsv('/api/documents/export','documents.csv').catch(e=>$('uploadStatus').textContent=e.message)); $('logout').addEventListener('click',()=>{localStorage.removeItem('kb_token');location.reload();}); $('documentRows').addEventListener('click',event=>{const retry=event.target.closest('[data-retry]');const access=event.target.closest('[data-access]');const remove=event.target.closest('[data-delete]');if(retry)retryDocument(retry.dataset.retry);if(access)openAclEditor(access.dataset.access);if(remove)deleteDocument(remove.dataset.delete);}); $('chatMessages').addEventListener('click',event=>{const button=event.target.closest('[data-feedback]');if(button)submitFeedback(button);}); $('kbRows').addEventListener('click',event=>{const button=event.target.closest('[data-members]');if(button)manageMembers(button.dataset.members);}); document.querySelectorAll('[data-tab]').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('[data-tab]').forEach(b=>b.classList.remove('active'));button.classList.add('active');document.querySelectorAll('[id^="tab-"]').forEach(panel=>panel.classList.add('hidden')); $(`tab-${button.dataset.tab}`).classList.remove('hidden'); if(button.dataset.tab==='stats')loadStats(); if(button.dataset.tab==='users')loadUsers();}));
     if(state.token) api('/api/auth/me').then(data=>{state.user=data.user;showWorkspace();return Promise.all([loadSessions(),loadDepartments(),loadKnowledgeBases(),loadDocuments()]);}).catch(()=>localStorage.removeItem('kb_token'));
   
 

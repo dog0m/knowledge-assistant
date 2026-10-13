@@ -47,6 +47,12 @@
       </section>
       <section id="tab-knowledge" class="panel hidden"><h2>知识库管理</h2><form id="kbForm" class="row"><input id="kbName" placeholder="知识库名称" required><select id="kbDepartment"></select><input id="kbDescription" placeholder="描述"><button>创建知识库</button></form><p id="kbStatus" class="muted"></p><table><thead><tr><th>名称</th><th>部门</th><th>说明</th><th>成员数</th><th>操作</th></tr></thead><tbody id="kbRows"></tbody></table><h3>部门管理</h3><form id="departmentForm" class="row"><input id="newDepartmentName" placeholder="新部门名称" required><button>添加部门</button></form><p id="departmentStatus" class="muted"></p></section>
       <section id="tab-users" class="panel hidden"><h2>用户管理</h2><form id="userForm" class="row"><input id="newUsername" placeholder="用户名" required><input id="newDisplayName" placeholder="显示名称" required><input id="newPassword" type="password" placeholder="初始密码（至少 10 位）" required><select id="newDepartment"></select><select id="newRole"><option value="user">普通用户</option><option value="maintainer">维护员</option><option value="auditor">审计员</option></select><button>创建用户</button></form><p id="userStatus" class="muted"></p><table><thead><tr><th>用户名</th><th>姓名</th><th>角色</th><th>部门</th><th>状态</th></tr></thead><tbody id="userRows"></tbody></table></section>
+      <section id="aclEditor" class="panel hidden">
+        <h2>文档权限编辑 <span id="aclFilename" class="muted"></span></h2>
+        <p class="muted">勾选可访问该文档的成员。带“知识库成员”标记的为自动授权（只读展示），手工勾选会保存为 manual ACL。</p>
+        <div class="row"><input id="aclSearch" placeholder="搜索用户名 / 姓名 / 部门"><button id="aclSave">保存权限</button><button id="aclCancel" class="secondary">取消</button><span id="aclStatus" class="muted"></span></div>
+        <div id="aclList" style="max-height:360px;overflow:auto;margin-top:8px"></div>
+      </section>
       <section id="tab-stats" class="panel hidden"><h2>管理统计</h2><div id="statsContent" class="grid"></div><button id="exportFeedback" class="secondary">导出反馈 CSV</button></section>
     </section>
   </main>

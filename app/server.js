@@ -5,6 +5,8 @@ const path = require("path");
 const fs = require("fs");
 const multer = require("multer");
 const cookieParser = require("cookie-parser");
+// 会话存储：默认走 PostgreSQL 多副本共享，可用 SESSION_STORE=memory 切回单进程内存。
+const { createSessionStore } = require("./session-store");
 
 // Express API 负责基础健康检查和统一的模型调用入口。
 const app = express();
@@ -23,10 +25,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// 登录失败计数只保存在当前进程内，适合单机试点；多副本部署时应迁移到 Redis。
-const loginFailures = new Map();
-const LOGIN_WINDOW_MS = 10 * 60 * 1000;
-const LOGIN_MAX_FAILURES = 10;
+// 登录失败计数与会话统一交给会话存储：默认 PostgreSQL，多副本共享；SESSION_STORE=memory 时退回单进程内存。
 
 // PostgreSQL 连接池；连接信息全部通过环境变量注入。
 const pool = new Pool({
@@ -36,6 +35,9 @@ const pool = new Pool({
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD
 });
+
+// 连接池建好后再实例化 store；store 内部只依赖 pool.query，便于替换与测试。
+const sessionStore = createSessionStore({ pool });
 
 const RAG_BASE_URL = (process.env.RAG_BASE_URL || "http://rag:8090").replace(/\/$/, "");
 const uploadDirectory = path.join(require("os").tmpdir(), "my-agent-uploads");
@@ -106,6 +108,8 @@ async function initStage4Database() {
       rating INTEGER CHECK (rating BETWEEN 1 AND 5), comment TEXT DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  // 会话存储可能需要在数据库里补建 login_failures 表（多副本限流用）。
+  await sessionStore.init();
   const adminPassword = process.env.ADMIN_INITIAL_PASSWORD || "change-me-now";
   await pool.query(
     `INSERT INTO users (username, password_hash, display_name, role, department)
@@ -127,17 +131,16 @@ async function initStage4Database() {
   );
 }
 
-function tokenHash(token) {
-  return crypto.createHash("sha256").update(token).digest("hex");
-}
-
 async function currentUser(req) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : req.headers.cookie?.match(/kb_session=([^;]+)/)?.[1];
   if (!token) return null;
+  // 会话解析交给存储层（可能是数据库，也可能是内存）；拿到 user_id 后再补查用户信息。
+  const session = await sessionStore.resolveSession(token);
+  if (!session) return null;
   const result = await pool.query(
-    `SELECT u.id, u.username, u.display_name, u.role, u.department FROM sessions s JOIN users u ON u.id=s.user_id
-     WHERE s.token_hash=$1 AND s.expires_at > NOW() AND u.active=TRUE`, [tokenHash(token)]
+    "SELECT id, username, display_name, role, department FROM users WHERE id=$1 AND active=TRUE",
+    [session.user_id]
   );
   return result.rows[0] || null;
 }
@@ -298,22 +301,20 @@ app.post("/api/auth/login", async (req, res, next) => {
   try {
     const { username, password } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: "username 和 password 必填" });
+    // 限流 key 用 IP + 用户名；计数存在共享存储里，多副本下仍然生效。
     const key = `${req.ip}:${String(username).slice(0, 80)}`;
-    const previous = loginFailures.get(key);
-    if (previous && previous.expiresAt > Date.now() && previous.count >= LOGIN_MAX_FAILURES) {
+    if (await sessionStore.isLoginBlocked(key)) {
       return res.status(429).json({ error: "登录失败次数过多，请 10 分钟后重试" });
     }
     const result = await pool.query("SELECT * FROM users WHERE username=$1 AND active=TRUE", [username]);
     const user = result.rows[0];
     if (!user || !verifyPassword(password, user.password_hash)) {
-      const item = previous && previous.expiresAt > Date.now() ? previous : { count: 0, expiresAt: Date.now() + LOGIN_WINDOW_MS };
-      item.count += 1;
-      loginFailures.set(key, item);
+      await sessionStore.recordLoginFailure(key);
       return res.status(401).json({ error: "用户名或密码错误" });
     }
-    loginFailures.delete(key);
-    const token = crypto.randomBytes(32).toString("hex");
-    await pool.query("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ($1, $2, NOW() + INTERVAL '12 hours')", [tokenHash(token), user.id]);
+    await sessionStore.clearLoginFailures(key);
+    // 会话由存储层生成并持久化，返回的明文令牌只出现在这一次响应里。
+    const token = await sessionStore.createSession(user.id);
     res.cookie?.("kb_session", token, { httpOnly: true, sameSite: "lax", maxAge: 12 * 60 * 60 * 1000 });
     res.json({ token, user: { id: user.id, username: user.username, display_name: user.display_name, role: user.role, department: user.department } });
   } catch (error) { next(error); }
@@ -323,7 +324,8 @@ app.post("/api/auth/logout", requireAuth, async (req, res, next) => {
   try {
     const header = req.headers.authorization || "";
     const token = header.startsWith("Bearer ") ? header.slice(7) : req.headers.cookie?.match(/kb_session=([^;]+)/)?.[1];
-    await pool.query("DELETE FROM sessions WHERE token_hash=$1", [tokenHash(token)]);
+    if (token) await sessionStore.deleteSession(token);
+    res.clearCookie?.("kb_session");
     res.json({ status: "ok" });
   } catch (error) { next(error); }
 });
@@ -337,7 +339,8 @@ app.post("/api/auth/change-password", requireAuth, async (req, res, next) => {
     const row = await pool.query("SELECT password_hash FROM users WHERE id=$1", [req.user.id]);
     if (!row.rowCount || !verifyPassword(current_password || "", row.rows[0].password_hash)) return res.status(401).json({ error: "当前密码错误" });
     await pool.query("UPDATE users SET password_hash=$1 WHERE id=$2", [hashPassword(new_password), req.user.id]);
-    await pool.query("DELETE FROM sessions WHERE user_id=$1", [req.user.id]);
+    // 改密后让所有旧会话立即失效（跨副本同样生效）。
+    await sessionStore.deleteSessionsForUser(req.user.id);
     res.json({ status: "ok" });
   } catch (error) { next(error); }
 });
@@ -531,8 +534,49 @@ app.post("/api/documents/batch", requireAuth, requireRole("admin", "maintainer")
   finally { for (const file of req.files || []) await fs.promises.unlink(file.path).catch(() => {}); }
 });
 
+// 文档 ACL 可视化编辑器数据源：一次返回"手工 ACL + 知识库 ACL + 候选用户"。
+// 前端据此渲染勾选列表，避免让管理员手抄 UUID。
+app.get("/api/documents/:id/access", requireAuth, requireRole("admin", "maintainer"), async (req, res, next) => {
+  try {
+    // 用 admin 角色读元数据，便于展示完整 ACL；越权写操作仍由下面的 PUT 单独校验。
+    const document = await ragRequest(`/documents/${req.params.id}?user_id=${encodeURIComponent(req.user.id)}&department=${encodeURIComponent(req.user.department)}&role=admin`);
+    const manual = document.manual_allowed_users || [];
+    const kbDirect = document.kb_allowed_users || [];
+    // 文档所属知识库的成员同样是有效授权来源，这里一并查出来做只读展示。
+    const kbRows = await pool.query(
+      "SELECT DISTINCT m.user_id FROM kb_documents d JOIN kb_members m ON m.knowledge_base_id=d.knowledge_base_id WHERE d.document_id=$1",
+      [req.params.id]
+    );
+    const kbUsers = [...new Set([...kbDirect, ...kbRows.rows.map(row => row.user_id)])];
+    const effective = [...new Set([...manual, ...kbUsers])];
+    const candidates = await pool.query("SELECT id,username,display_name,department,role,active FROM users WHERE active=TRUE ORDER BY department,username");
+    res.json({
+      document_id: req.params.id,
+      filename: document.filename,
+      department: document.department,
+      manual_allowed_users: manual,
+      kb_allowed_users: kbUsers,
+      allowed_users: effective,
+      candidates: candidates.rows
+    });
+  } catch (error) { next(error); }
+});
+
 app.put("/api/documents/:id/access", requireAuth, requireRole("admin", "maintainer"), async (req, res, next) => {
-  try { res.json(await ragRequest(`/documents/${req.params.id}/access`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ allowed_users: req.body?.allowed_users || [] }) })); } catch (error) { next(error); }
+  try {
+    // 维护员只能改本部门（或 public、或本部门知识库关联）文档的权限，避免跨部门改 ACL。
+    if (req.user.role !== "admin") {
+      const document = await ragRequest(`/documents/${req.params.id}?user_id=${encodeURIComponent(req.user.id)}&department=${encodeURIComponent(req.user.department)}&role=admin`);
+      const linked = await pool.query(
+        "SELECT 1 FROM kb_documents d JOIN knowledge_bases k ON k.id=d.knowledge_base_id WHERE d.document_id=$1 AND k.department=$2 LIMIT 1",
+        [req.params.id, req.user.department]
+      );
+      if (document.department !== req.user.department && document.department !== "public" && !linked.rowCount) {
+        return res.status(403).json({ error: "维护员不能修改其他部门文档的权限" });
+      }
+    }
+    res.json(await ragRequest(`/documents/${req.params.id}/access`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ allowed_users: req.body?.allowed_users || [] }) }));
+  } catch (error) { next(error); }
 });
 
 app.post("/api/documents/:id/retry", requireAuth, requireRole("admin", "maintainer"), async (req, res, next) => {
@@ -633,32 +677,72 @@ app.post("/api/chat/sessions/:id/messages", requireAuth, async (req, res, next) 
   } catch (error) { next(error); }
 });
 
+// 原生模型 token 流：直接代理 RAG 服务的 /query/stream（SSE），逐块转发给浏览器。
+// 与旧实现的区别：旧版本是"先等完整答案、再按 80 字切块"的伪流式，首字延迟等于整段生成时间；
+// 现在改为真正的边生成边下发，首字延迟只取决于模型首个 token。
 app.get("/api/chat/sessions/:id/stream", requireAuth, async (req, res, next) => {
   try {
     const content = String(req.query.content || "").trim();
     if (!content || content.length > 4000) return res.status(400).json({ error: "content 必填且不能超过 4000 个字符" });
     const session = await pool.query("SELECT id FROM chat_sessions WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id]);
     if (!session.rowCount) return res.status(404).json({ error: "会话不存在" });
+    // 先落库用户消息，保证即使模型报错也能看到提问记录。
     await pool.query("INSERT INTO chat_messages (session_id,user_id,role,content) VALUES ($1,$2,'user',$3)", [req.params.id, req.user.id, content]);
     const history = await pool.query("SELECT role,content FROM chat_messages WHERE session_id=$1 AND role IN ('user','assistant') ORDER BY id DESC LIMIT 12", [req.params.id]);
-    const answer = await ragRequest("/agent/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: content, user_id: req.user.id, department: req.user.department, role: req.user.role, intent: "knowledge", history: history.rows.reverse().slice(0, -1), knowledge_base_id: req.query.knowledge_base_id || null }) });
-    await pool.query("INSERT INTO chat_messages (session_id,user_id,role,content,trace_id,sources) VALUES ($1,$2,'assistant',$3,$4,$5)", [req.params.id, req.user.id, answer.answer || "", answer.trace_id || null, JSON.stringify(answer.sources || [])]);
-    await pool.query("UPDATE chat_sessions SET updated_at=NOW() WHERE id=$1", [req.params.id]);
-    res.status(200).set({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache", Connection: "keep-alive" });
-    res.flushHeaders();
-    res.write(`event: meta\ndata: ${JSON.stringify({ trace_id: answer.trace_id, sources: answer.sources || [] })}\n\n`);
-    // 当前 RAG 生成接口返回完整答案；这里按短文本分块发送，前端可立即渲染传输中的内容。
-    const text = String(answer.answer || "");
-    for (let offset = 0; offset < text.length; offset += 80) {
-      res.write(`event: token\ndata: ${JSON.stringify({ text: text.slice(offset, offset + 80) })}\n\n`);
+
+    const upstream = await fetch(`${RAG_BASE_URL}/query/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Internal-Token": process.env.INTERNAL_API_KEY || "" },
+      body: JSON.stringify({
+        query: content,
+        user_id: req.user.id,
+        department: req.user.department,
+        role: req.user.role,
+        knowledge_base_id: req.query.knowledge_base_id || null,
+        history: history.rows.reverse().slice(0, -1)
+      })
+    });
+    if (!upstream.ok) {
+      const payload = await upstream.json().catch(() => ({}));
+      return res.status(upstream.status).json({ error: payload.detail || payload.error || "RAG 流式接口失败" });
     }
-    res.write("event: done\ndata: {}\n\n");
+
+    res.status(200).set({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache", Connection: "keep-alive", "X-Accel-Buffering": "no" });
+    res.flushHeaders();
+
+    // 边转发边累积答案与引用，流结束后一次性写入 chat_messages。
+    let answerText = "";
+    let traceId = null;
+    let sources = [];
+    let buffer = "";
+    const decoder = new TextDecoder();
+    for await (const chunk of upstream.body) {
+      const text = decoder.decode(chunk, { stream: true });
+      buffer += text;
+      // 逐条 SSE 报文（以空行分隔）解析，避免把半条事件当成完整事件。
+      const events = buffer.split("\n\n");
+      buffer = events.pop() || "";
+      for (const raw of events) {
+        if (!raw.trim()) continue;
+        const dataLine = raw.split("\n").find(line => line.startsWith("data: "));
+        if (!dataLine) continue;
+        let data = {};
+        try { data = JSON.parse(dataLine.slice(6)); } catch { continue; }
+        if (raw.startsWith("event: meta")) { traceId = data.trace_id || null; sources = data.sources || []; }
+        if (raw.startsWith("event: token")) answerText += data.text || "";
+      }
+      // 原样转发，前端解析逻辑不需要改变。
+      res.write(text);
+    }
+    await pool.query("INSERT INTO chat_messages (session_id,user_id,role,content,trace_id,sources) VALUES ($1,$2,'assistant',$3,$4,$5)", [req.params.id, req.user.id, answerText, traceId, JSON.stringify(sources)]);
+    await pool.query("UPDATE chat_sessions SET updated_at=NOW() WHERE id=$1", [req.params.id]);
     res.end();
   } catch (error) {
     if (res.headersSent) { res.write(`event: error\ndata: ${JSON.stringify({ error: error.message })}\n\n`); res.end(); return; }
     next(error);
   }
 });
+
 app.post("/api/feedback", requireAuth, async (req, res, next) => {
   try {
     const { session_id, trace_id, rating, comment = "" } = req.body || {};

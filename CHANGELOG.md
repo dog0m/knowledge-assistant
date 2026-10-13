@@ -18,11 +18,20 @@
 - jieba 中文分词
 - pytest 单元测试、CI 工作流、Makefile
 - README、LICENSE、CONTRIBUTING、SECURITY、ADR
+- 原生模型 token 流：POST /query/stream 与 GET /api/chat/sessions/:id/stream 逐 token 转发
+- 多副本会话存储（app/session-store.js）：会话与登录失败计数默认落 PostgreSQL
+- 文档 ACL 可视化编辑器：GET /api/documents/:id/access + 前端勾选面板
+- Testcontainers 全链路集成测试（真实 PostgreSQL / Qdrant）与独立 CI integration job
+- Node 会话存储单元测试（node --test tests/session_store.test.js）
 
 ### Changed
 - RAG 配置集中到 rag/settings.py
 - Express 错误响应只返回 trace_id，内部细节写日志
 - 前端脚本从 index.html 拆分到 app.js
+- 聊天流式接口由"整段生成后按 80 字切块"改为真正的边生成边下发
+- compose.yml 移除固定 container_name，支持 docker compose up --scale 水平扩展
+- 登录限流从进程内 Map 迁移到共享存储，多副本下限流生效
+- 矩阵报告 Markdown 生成改用显式变量，兼容 Python 3.11/3.12 解析器
 
 ### Security
 - 移除无关第三方工具目录，收紧 .gitignore

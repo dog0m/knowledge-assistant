@@ -4,7 +4,7 @@ services:
     # 业务 API 不需要 GPU；镜像由 app/Dockerfile 提供（node:22-alpine）。
     build:
       context: ./app
-    container_name: myapp-app
+    # 不写死 container_name，才能用 `docker compose up --scale app=3` 水平扩展多副本。
     environment:
       # 容器内端口固定为 3000，宿主机端口由 APP_PORT 控制。
       PORT: 3000
@@ -25,6 +25,9 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ADMIN_INITIAL_USERNAME: ${ADMIN_INITIAL_USERNAME:-admin}
       ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-change-me-now}
+      # 会话存储：postgres（默认，多副本共享）或 memory（单进程，本地开发用）。
+      SESSION_STORE: ${SESSION_STORE:-postgres}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
     ports:
       - "${APP_PORT}:3000"
     depends_on:
@@ -75,7 +78,7 @@ services:
   rag:
     build:
       context: ./rag
-    container_name: myapp-rag
+    # 不写死 container_name，支持 rag 多副本扩展。
     environment:
       PORT: 8090
       DB_HOST: db
@@ -124,7 +127,7 @@ services:
   worker:
     build:
       context: ./rag
-    container_name: myapp-worker
+    # 不写死 container_name，支持 worker 多副本扩展。
     command: ["python", "worker.py"]
     environment:
       DB_HOST: db

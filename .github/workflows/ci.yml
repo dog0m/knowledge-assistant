@@ -21,10 +21,11 @@ jobs:
         run: python -m py_compile rag/main.py rag/settings.py rag/security.py rag/worker.py
 
       - name: Lint
-        run: ruff check rag
+        run: ruff check rag tests
 
       - name: Unit tests
-        run: python -m pytest -q
+        # 集成测试需要 Docker 容器，放到独立的 integration job，保持本任务快速。
+        run: python -m pytest -q -m "not integration"
 
       - uses: actions/setup-node@v4
         with:
@@ -37,6 +38,10 @@ jobs:
         run: |
           node --check app/server.js
           node --check app/public/app.js
+          node --check app/session-store.js
+
+      - name: Node unit tests (session store)
+        run: node --test tests/session_store.test.js
 
       - name: Prepare placeholder env
         run: cp .env.example .env
@@ -44,6 +49,22 @@ jobs:
       - name: Validate compose config
         run: docker compose config --quiet
 
+  integration:
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: pip install -r rag/requirements.txt -r rag/requirements-dev.txt
+
+      - name: Full-chain integration tests (Testcontainers)
+        # 真实启动 PostgreSQL 与 Qdrant 容器，验证入库/检索/权限/更新/删除链路。
+        run: python -m pytest -q -m integration
 
   security:
     runs-on: ubuntu-latest

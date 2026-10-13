@@ -82,11 +82,41 @@ python -m pytest -q
 
 Makefile 提供 make up / make test / make lint 快捷命令。
 
-## 已实现 / 未实现
+## 已实现
 
-已实现：文档流水线、混合检索、权限 ACL、Agent 路由、异步索引、内部鉴权、提示注入防御、评测矩阵、管理界面、备份恢复手册。
+文档流水线、混合检索、权限 ACL、Agent 路由、异步索引、内部鉴权、提示注入防御、评测矩阵、管理界面、备份恢复手册。
 
-未实现：原生模型 token 流、Testcontainers 全链路集成测试、完整文档 ACL 可视化编辑器、生产级多副本会话存储。
+### 原生模型 token 流
+
+`POST /query/stream`（RAG）与 `GET /api/chat/sessions/:id/stream`（app）是真正的流式接口：
+逐 token 转发 Ollama / OpenAI 的增量输出，而不是"等整段答案生成完再切块"。
+SSE 事件顺序为 `meta`（引用来源）→ `token`（文本增量，多条）→ `done`。
+
+### 多副本会话存储
+
+会话与登录失败计数由 `app/session-store.js` 统一管理，默认落 PostgreSQL，因此
+`docker compose up --scale app=3` 时任一副本签发的令牌在其他副本同样有效，登录限流也共享。
+
+| 环境变量 | 说明 | 默认 |
+| --- | --- | --- |
+| SESSION_STORE | postgres（多副本共享）或 memory（单进程） | postgres |
+| SESSION_TTL_HOURS | 会话有效期（小时） | 12 |
+
+### 文档 ACL 可视化编辑器
+
+文档管理页签的"权限"按钮打开勾选式编辑器，区分手工 ACL 与知识库自动授权，
+数据来自 `GET /api/documents/:id/access`。手工 ACL 保存后与知识库 ACL 合并为最终 `allowed_users`。
+
+### 全链路集成测试
+
+`tests/integration/` 用 Testcontainers 启动真实 PostgreSQL 与 Qdrant，覆盖
+入库 → 索引 → 检索 → 权限过滤 → 版本更新 → 删除。CI 中为独立的 `integration` job。
+
+```powershell
+python -m pytest -q -m "not integration"   # 快速单元测试
+python -m pytest -q -m integration         # 需要本机 Docker
+node --test tests/session_store.test.js    # 会话存储
+```
 
 ## 技术选型
 
