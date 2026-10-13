@@ -1,0 +1,194 @@
+services:
+  # 业务 API：连接 PostgreSQL、Qdrant，并调用选定的模型后端。
+  app:
+    # 业务 API 不需要 GPU；镜像由 app/Dockerfile 提供（node:22-alpine）。
+    build:
+      context: ./app
+    container_name: myapp-app
+    environment:
+      # 容器内端口固定为 3000，宿主机端口由 APP_PORT 控制。
+      PORT: 3000
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      RAG_BASE_URL: ${RAG_BASE_URL:-http://rag:8090}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in .env}
+      # 模型后端二选一：ollama 或 openai。
+      MODEL_PROVIDER: ${MODEL_PROVIDER:-ollama}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ADMIN_INITIAL_USERNAME: ${ADMIN_INITIAL_USERNAME:-admin}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-change-me-now}
+    ports:
+      - "${APP_PORT}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # 向量数据库；数据保存在命名卷中。
+  qdrant:
+    image: qdrant/qdrant:v1.19.1
+    container_name: myapp-qdrant
+    # 本地调试用；生产环境请移除该映射，仅保留容器内 expose。
+    ports:
+      - "6333:6333"   # REST API + Dashboard
+    volumes:
+      - qdrant_data:/qdrant/storage
+    expose:
+      - "6333"
+      - "6334"
+    healthcheck:
+      # 当前镜像没有 wget/curl，检查主进程存活即可。
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # 本地模型服务；模型文件保存在命名卷并允许使用 GPU。
+  ollama:
+    image: ollama/ollama:0.35.0
+    container_name: myapp-ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    gpus: all
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # Python RAG 服务：负责文档解析、切分、Embedding、索引和带引用检索。
+  rag:
+    build:
+      context: ./rag
+    container_name: myapp-rag
+    environment:
+      PORT: 8090
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-knowledge_chunks}
+      DOCUMENT_DATA_DIR: /data/documents
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-bge-m3}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
+      MODEL_PROVIDER: ${MODEL_PROVIDER:-ollama}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      RAG_CHUNK_SIZE: ${RAG_CHUNK_SIZE:-900}
+      RAG_CHUNK_OVERLAP: ${RAG_CHUNK_OVERLAP:-120}
+      RAG_MAX_RETRIES: ${RAG_MAX_RETRIES:-3}
+      RAG_MIN_SCORE: ${RAG_MIN_SCORE:-0.25}
+      RAG_CHUNK_STRATEGY: ${RAG_CHUNK_STRATEGY:-fixed}
+      RAG_RETRIEVAL_MODE: ${RAG_RETRIEVAL_MODE:-hybrid}
+      RAG_RERANK_LIMIT: ${RAG_RERANK_LIMIT:-20}
+      RAG_ENABLE_CROSS_ENCODER: ${RAG_ENABLE_CROSS_ENCODER:-false}
+      AGENT_MAX_TOOL_CALLS: ${AGENT_MAX_TOOL_CALLS:-3}
+      RAG_EVALUATION_FILE: /service/eval_set.json
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in .env}
+    # RAG 接口只供同一 Docker 网络中的 app 调用，避免绕过登录直接伪造 user_id/role。
+    expose:
+      - "8090"
+    volumes:
+      - documents_data:/data/documents
+    depends_on:
+      db:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # 异步索引 worker：上传接口只入队，worker 负责解析、Embedding 和 Qdrant 写入。
+  worker:
+    build:
+      context: ./rag
+    container_name: myapp-worker
+    command: ["python", "worker.py"]
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-knowledge_chunks}
+      DOCUMENT_DATA_DIR: /data/documents
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-bge-m3}
+      RAG_CHUNK_SIZE: ${RAG_CHUNK_SIZE:-900}
+      RAG_CHUNK_OVERLAP: ${RAG_CHUNK_OVERLAP:-120}
+      RAG_CHUNK_STRATEGY: ${RAG_CHUNK_STRATEGY:-fixed}
+    volumes:
+      - documents_data:/data/documents
+    depends_on:
+      db:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # 关系数据库；仅在 backend 网络内暴露。
+  db:
+    image: postgres:16-alpine
+    container_name: myapp-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - backend
+
+volumes:
+  # 命名卷让容器重建后仍保留数据。
+  postgres_data:
+  qdrant_data:
+  ollama_data:
+  documents_data:
+
+networks:
+  backend:
+    driver: bridge
+
+
+
+

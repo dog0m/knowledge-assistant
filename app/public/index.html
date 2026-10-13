@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>企业知识库助手</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; color: #172033; background: #f4f6f8; }
+    * { box-sizing: border-box; } body { margin: 0; }
+    header { display:flex; justify-content:space-between; align-items:center; padding:16px 24px; background:#172033; color:white; }
+    main { max-width:1200px; margin:24px auto; padding:0 16px; }
+    .panel { background:white; border:1px solid #dce1e8; border-radius:6px; padding:18px; margin-bottom:16px; }
+    input, textarea, select, button { font:inherit; padding:9px 10px; border:1px solid #c8d0dc; border-radius:4px; }
+    button { cursor:pointer; background:#1769aa; color:white; border-color:#1769aa; }
+    button.secondary { background:white; color:#1769aa; }
+    .hidden { display:none; } .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; }
+    .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; } table { width:100%; border-collapse:collapse; margin-top:12px; }
+    th,td { text-align:left; padding:9px; border-bottom:1px solid #e5e9ef; vertical-align:top; }
+    .tabs { display:flex; gap:8px; margin-bottom:16px; } .tabs button.active { background:#172033; }
+    .chat { min-height:260px; max-height:520px; overflow:auto; border:1px solid #e1e6ec; padding:12px; margin-bottom:12px; }
+    .message { padding:10px; margin:8px 0; border-radius:5px; white-space:pre-wrap; } .user { background:#eaf3ff; } .assistant { background:#f1f3f5; }
+    .source { font-size:13px; border-left:3px solid #75a7d5; padding-left:8px; margin:6px 0; }
+    #login { max-width:380px; margin:80px auto; } #login form { display:grid; gap:10px; }
+    .muted { color:#697586; font-size:13px; }
+  </style>
+</head>
+<body>
+  <header><strong>企业知识库助手</strong><div id="userBar" class="hidden"><span id="userName"></span> <button id="logout" class="secondary">退出</button></div></header>
+  <main>
+    <section id="login" class="panel">
+      <h2>登录</h2>
+      <form id="loginForm"><input id="username" placeholder="用户名" autocomplete="username" required><input id="password" type="password" placeholder="密码" autocomplete="current-password" required><button>登录</button></form>
+      <p id="loginError" class="muted"></p>
+    </section>
+    <section id="workspace" class="hidden">
+      <nav class="tabs"><button data-tab="chat" class="active">聊天</button><button data-tab="documents">文档管理</button><button data-tab="knowledge">知识库</button><button data-tab="users" id="usersTab" class="hidden">用户管理</button><button data-tab="stats">管理统计</button></nav>
+      <section id="tab-chat" class="panel">
+        <div class="row"><select id="sessionSelect"></select><select id="chatKb"><option value="">全部授权知识库</option></select><button id="newSession">新建会话</button><button id="renameSession" class="secondary">重命名</button><button id="deleteSession" class="secondary">删除会话</button><button id="changePassword" class="secondary">修改密码</button></div>
+        <div id="chatMessages" class="chat"></div>
+        <textarea id="chatInput" rows="3" placeholder="输入问题，回答会显示引用来源"></textarea>
+        <div class="row"><button id="sendMessage">发送</button><span id="chatStatus" class="muted"></span></div>
+      </section>
+      <section id="tab-documents" class="panel hidden">
+        <div class="row"><h2>文档管理</h2><button id="exportDocuments" class="secondary">导出文档 CSV</button></div>
+        <form id="uploadForm" class="row"><input id="files" type="file" multiple accept=".pdf,.docx,.md,.markdown,.txt" required><select id="uploadKb"><option value="">按部门授权</option></select><select id="department"></select><select id="sensitivity"><option>L0</option><option selected>L1</option><option>L2</option></select><button>批量入库</button></form>
+        <p id="uploadStatus" class="muted"></p><table><thead><tr><th>文件</th><th>状态</th><th>版本</th><th>块数</th><th>错误</th><th>操作</th></tr></thead><tbody id="documentRows"></tbody></table>
+      </section>
+      <section id="tab-knowledge" class="panel hidden"><h2>知识库管理</h2><form id="kbForm" class="row"><input id="kbName" placeholder="知识库名称" required><select id="kbDepartment"></select><input id="kbDescription" placeholder="描述"><button>创建知识库</button></form><p id="kbStatus" class="muted"></p><table><thead><tr><th>名称</th><th>部门</th><th>说明</th><th>成员数</th><th>操作</th></tr></thead><tbody id="kbRows"></tbody></table><h3>部门管理</h3><form id="departmentForm" class="row"><input id="newDepartmentName" placeholder="新部门名称" required><button>添加部门</button></form><p id="departmentStatus" class="muted"></p></section>
+      <section id="tab-users" class="panel hidden"><h2>用户管理</h2><form id="userForm" class="row"><input id="newUsername" placeholder="用户名" required><input id="newDisplayName" placeholder="显示名称" required><input id="newPassword" type="password" placeholder="初始密码（至少 10 位）" required><select id="newDepartment"></select><select id="newRole"><option value="user">普通用户</option><option value="maintainer">维护员</option><option value="auditor">审计员</option></select><button>创建用户</button></form><p id="userStatus" class="muted"></p><table><thead><tr><th>用户名</th><th>姓名</th><th>角色</th><th>部门</th><th>状态</th></tr></thead><tbody id="userRows"></tbody></table></section>
+      <section id="tab-stats" class="panel hidden"><h2>管理统计</h2><div id="statsContent" class="grid"></div><button id="exportFeedback" class="secondary">导出反馈 CSV</button></section>
+    </section>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>
+
+
+

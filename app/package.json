@@ -1,0 +1,16 @@
+{
+  "name": "docker-demo-app",
+  "version": "1.0.0",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --check server.js; node --check public/app.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "pg": "^8.13.1",
+    "multer": "^1.4.5-lts.1",
+    "cookie-parser": "^1.4.7"
+  }
+}

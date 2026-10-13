@@ -1,0 +1,37 @@
+# 本地密钥和运行数据不得进入版本库。
+.env
+.env.local
+*.env.bak
+
+# 数据库与备份导出
+backup/*.sql
+backup/*.dump
+backup/*.tgz
+backup/*.tar.gz
+
+# 运行时数据与缓存
+documents/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+node_modules/
+npm-debug.log*
+playwright-report/
+test-results/
+evals/
+artifacts/
+
+# 本地工具链（与本项目无关的临时环境）
+.impacket-venv*/
+.impacket-runtime*/
+.venv/
+venv/
+.package-runner.txt
+
+# 编辑器与系统文件
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

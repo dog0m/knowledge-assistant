@@ -1,0 +1,4 @@
+# P0修复8：密钥边界 - 确保敏感文件不被追踪
+.env export-ignore
+backup/*.sql export-ignore
+backup/*.dump export-ignore

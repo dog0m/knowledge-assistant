@@ -1,0 +1,12 @@
+[
+  {"id": "q001", "query": "What is a Docker container?", "expected_keywords": ["container"], "expected_evidence": true},
+  {"id": "q002", "query": "What is a Docker image?", "expected_keywords": ["image"], "expected_evidence": true},
+  {"id": "q003", "query": "What is a container registry used for?", "expected_keywords": ["registry"], "expected_evidence": true},
+  {"id": "q004", "query": "How does FastAPI validate a request body?", "expected_keywords": ["pydantic", "request body"], "expected_evidence": true},
+  {"id": "q005", "query": "What is pgvector used for?", "expected_keywords": ["vector"], "expected_evidence": true},
+  {"id": "q006", "query": "What is a Qdrant collection?", "expected_keywords": ["collection"], "expected_evidence": true},
+  {"id": "q007", "query": "What is Ollama used for?", "expected_keywords": ["ollama", "model"], "expected_evidence": true},
+  {"id": "q008", "query": "How are Docker images, containers, and registries related?", "expected_keywords": ["image", "container", "registry"], "expected_evidence": true},
+  {"id": "q009", "query": "What is the capital of Mars?", "expected_keywords": [], "expected_evidence": false},
+  {"id": "q010", "query": "Give me the current salary of the platform team.", "expected_keywords": [], "expected_evidence": false}
+]

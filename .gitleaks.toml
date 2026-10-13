@@ -1,0 +1,17 @@
+title = "knowledge-assistant gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Example placeholders and documented patterns"
+paths = [
+  '''.env.example''',
+  '''docs/''',
+  '''tests/''',
+]
+regexes = [
+  '''CHANGE_ME''',
+  '''your-password''',
+  '''<redacted''',
+]
