@@ -6,7 +6,6 @@ worker 复用 main.py 的解析、Embedding 和索引函数；任务状态写入
 
 import asyncio
 import json
-import time
 from pathlib import Path
 
 from main import db_connection, get_document, index_document, init_database, parse_document, queue_reindex_for_collection_migration, scan_prompt_injection, update_status

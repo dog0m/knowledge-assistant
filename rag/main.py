@@ -11,7 +11,6 @@ import math
 import hmac
 import os
 import re
-import shutil
 import time
 import uuid
 import zipfile
@@ -378,7 +377,7 @@ async def index_document(document: dict[str, Any]) -> int:
                     "sensitivity": document["sensitivity"],
                     "allowed_users": effective_acl,
                     "knowledge_base_id": document.get("knowledge_base_id"),
-                    "injection_flags": scan_prompt_injection(chunk["text"]),
+                    "injection_flags": sorted(set(injection_flags) | set(scan_prompt_injection(chunk["text"]))),
                 },
             )
         )

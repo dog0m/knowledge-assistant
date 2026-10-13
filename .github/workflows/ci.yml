@@ -68,12 +68,50 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Prepare CI environment file
+        run: |
+          cat > .env <<'ENV'
+          POSTGRES_DB=myapp
+          POSTGRES_USER=myappuser
+          POSTGRES_PASSWORD=ci-password-not-secret
+          APP_PORT=8080
+          QDRANT_URL=http://qdrant:6333
+          RAG_BASE_URL=http://rag:8090
+          ADMIN_INITIAL_USERNAME=admin
+          ADMIN_INITIAL_PASSWORD=ci-admin-password
+          QDRANT_COLLECTION=knowledge_chunks
+          MODEL_PROVIDER=ollama
+          INTERNAL_API_KEY=ci-internal-token-not-secret
+          ENV
+
+      - name: Start app stack
+        run: |
+          docker compose up -d db qdrant app
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/health > /dev/null; then
+              echo "app is healthy"
+              break
+            fi
+            sleep 3
+          done
+
+      - name: Verify health endpoint
+        run: curl -fsS http://localhost:8080/health
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
 
       - name: Install Playwright
         run: |
-          npm install -D @playwright/test --prefix app
+          npm install --prefix app -D @playwright/test
           npx --prefix app playwright install --with-deps chromium
-        continue-on-error: true
+
+      - name: Run Playwright smoke tests
+        env:
+          BASE_URL: http://localhost:8080
+        run: npx --prefix app playwright test -c tests/e2e/playwright.config.js
+
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v
