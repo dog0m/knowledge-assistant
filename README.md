@@ -30,7 +30,11 @@ flowchart LR
 ```powershell
 Copy-Item .env.example .env
 # 编辑 .env：填写数据库密码、管理员密码、INTERNAL_API_KEY、模型配置
-docker compose up -d --build app rag worker
+docker compose up -d --build
+
+# 确认核心服务已启动并通过健康检查
+Invoke-RestMethod http://localhost:8080/health
+docker compose ps
 Start-Process http://localhost:8080/
 ```
 
@@ -96,6 +100,8 @@ SSE 事件顺序为 `meta`（引用来源）→ `token`（文本增量，多条�
 
 会话与登录失败计数由 `app/session-store.js` 统一管理，默认落 PostgreSQL，因此
 `docker compose up --scale app=3` 时任一副本签发的令牌在其他副本同样有效，登录限流也共享。
+
+默认配置使用 PostgreSQL 作为共享会话存储。只有明确设置 `SESSION_STORE=memory` 时才使用单进程内存实现；该模式不适合多副本部署。
 
 | 环境变量 | 说明 | 默认 |
 | --- | --- | --- |
