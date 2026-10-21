@@ -16,5 +16,4 @@ regexes = [
   '''your-password''',
   '''your-key''',
   '''<redacted''',
-  '''Phase5-Test-Password''',
 ]
