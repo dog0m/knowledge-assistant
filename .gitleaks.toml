@@ -4,14 +4,17 @@ title = "knowledge-assistant gitleaks config"
 useDefault = true
 
 [allowlist]
+# Allow only files that contain documented placeholders; keep docs/ and tests/ scanned.
 description = "Example placeholders and documented patterns"
 paths = [
   '''.env.example''',
-  '''docs/''',
-  '''tests/''',
+  '''docs/phase-1-local-skeleton.md''',
 ]
 regexes = [
   '''CHANGE_ME''',
+  '''change-me-now''',
   '''your-password''',
+  '''your-key''',
   '''<redacted''',
+  '''Phase5-Test-Password''',
 ]

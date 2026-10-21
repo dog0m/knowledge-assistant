@@ -3,7 +3,7 @@ param(
   [int]$Concurrency = 5,
   [string]$BaseUrl = "http://localhost:8080",
   [string]$Username = "admin",
-  [string]$Password = "change-me-now"
+  [string]$Password = "CHANGE_ME"
 )
 
 # 阶段 5 并发采样：测试已登录的轻量接口，避免并发压测重复调用模型产生不可控费用。

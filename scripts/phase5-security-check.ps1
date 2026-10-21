@@ -1,7 +1,7 @@
 param(
   [string]$BaseUrl = "http://localhost:8080",
-  [string]$Username = "aaaa",
-  [string]$Password = "1234567890"
+  [string]$Username = "admin",
+  [string]$Password = "CHANGE_ME"
 )
 
 # 阶段 5 权限回归脚本：只调用业务 API，不直接修改数据库。
