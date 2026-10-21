@@ -40,3 +40,18 @@ Thumbs.db
 # 本地项目计划文档，不提交到公开或共享仓库。
 企业级智能知识库与任务助手项目计划方案.md
 .ua/
+
+# 本地测试产物与报告，不进入版本库（文件保留在本地）
+docs/phase-5/reports/
+docs/phase-5/phase5-test-report.md
+docs/phase-5/p1-verification.md
+docs/phase-5/p2-rag-matrix-results.md
+VERIFICATION.txt
+ROLLBACK.sh
+*.diff
+
+# 本地开发规划文档，不进入版本库（文件保留在本地）
+docs/project-review-and-roadmap.md
+docs/project-architecture-and-interview-guide.md
+docs/project-architecture-and-interview-guide.diff
+question.md

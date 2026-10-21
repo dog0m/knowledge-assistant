@@ -13,8 +13,9 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-rag-matrix.ps1 -User
 返回中的 `report_markdown` 和 `report_svg` 是容器内路径，可复制到本地查看：
 
 ```powershell
-docker cp myapp-rag:/service/evals/reports/matrix-<时间>-<哈希>.md .\docs\phase-5\
-docker cp myapp-rag:/service/evals/reports/matrix-<时间>-<哈希>.svg .\docs\phase-5\
+New-Item -ItemType Directory -Force .\evals\reports | Out-Null
+docker cp myapp-rag:/service/evals/reports/matrix-<时间>-<哈希>.md .\evals\reports\
+docker cp myapp-rag:/service/evals/reports/matrix-<时间>-<哈希>.svg .\evals\reports\
 ```
 
 默认 `RAG_ENABLE_CROSS_ENCODER=false`，矩阵中的 rerank 组使用可解释的 fallback-score，避免实验因首次下载 Hugging Face 模型而阻塞。需要真实 cross-encoder 时，在 `.env` 设置 `RAG_ENABLE_CROSS_ENCODER=true` 并重建 rag/worker。报告分别记录 `rerank_requested`、实际 `rerank` 和 `rerank_backend`；fallback 不会冒充 cross-encoder。

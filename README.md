@@ -63,7 +63,7 @@ docker exec myapp-ollama ollama pull bge-m3
 
 ## 评测结果
 
-固定评测集运行 POST /api/evaluation/matrix，输出 JSON、Markdown 和 SVG 报告，记录命中率、证据召回率和 p95 延迟。示例结果见 docs/phase-5/p2-rag-matrix-results.md。
+固定评测集运行 POST /api/evaluation/matrix，输出 JSON、Markdown 和 SVG 报告，记录命中率、证据召回率和 p95 延迟。示例结果在本地生成，不随仓库分发。
 
 | strategy | mode | rerank_backend | hit_rate | evidence_rate |
 | --- | --- | --- | ---: | ---: |
